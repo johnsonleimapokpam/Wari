@@ -5,6 +5,8 @@ const { registerMessageHandlers } = require('./messageHandlers');
 const { registerRoomHandlers } = require('./roomHandlers');
 const { registerPresenceHandlers } = require('./presenceHandlers');
 const { registerTypingHandlers } = require('./typingHandlers');
+const { registerDeliveryHandlers } = require('./deliveryHandlers');
+const { registerReadReceiptHandlers } = require('./readReceiptHandlers');
 
 const createSocketState = () => ({
   roomPresence: new Map()
@@ -30,6 +32,8 @@ const initializeSocketServer = (httpServer) => {
 
     registerPresenceHandlers(socket, io);
     registerTypingHandlers(socket, io);
+    registerDeliveryHandlers(socket, io);
+    registerReadReceiptHandlers(socket, io);
     registerRoomHandlers(socket, io, state);
     registerMessageHandlers(socket, io, state);
   });

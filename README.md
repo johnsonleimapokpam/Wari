@@ -8,6 +8,8 @@ Phase 3 adds in-memory presence tracking and a `GET /api/users/:id/presence` API
 
 Phase 4 adds typing indicators using Socket.IO and in-memory state only.
 
+Phase 5 adds message life cycle sent-> delivered-> read
+
 ## Folder Structure
 
 - `src/config` - environment parsing and database connectivity
@@ -16,7 +18,7 @@ Phase 4 adds typing indicators using Socket.IO and in-memory state only.
 - `src/middleware` - auth, validation, and error handling
 - `src/routes` - route composition
 - `src/sockets` - Socket.IO server, auth, room management, message handlers, presence, and typing handlers
-- `src/services` - business logic, including the presence service abstraction
+- `src/services` - business logic, including presence, typing, delivery, and read-receipt services
 - `src/models` - placeholder for domain notes; phase 1 uses SQL tables and repository mappers instead of an ORM
 - `src/utils` - shared helpers
 
@@ -285,4 +287,132 @@ sequenceDiagram
 	DB-->>S: stored message
 	S->>R: message_received
 	R-->>B: realtime message
+```
+
+## Message Delivery Status
+
+Message delivery status uses a simple state machine:
+
+- `SENT` - the message is stored in PostgreSQL.
+- `DELIVERED` - the recipient socket received the message.
+- `READ` - the recipient opened the conversation and the message was read.
+
+### Lifecycle
+
+1. User A sends a message.
+2. The server persists the message with `status = SENT`.
+3. If User B is online, the server upgrades the message to `DELIVERED` and emits it immediately.
+4. When User B opens the conversation, unread messages are upgraded in bulk to `READ`.
+5. The server emits status updates back to User A so the UI can render delivery and read check marks.
+
+### Database changes
+
+Phase 5 adds `status`, `delivered_at`, and `read_at` to `messages` in [sql/004_phase5_message_status.sql](sql/004_phase5_message_status.sql).
+
+Indexing strategy:
+
+- `conversation_id, status, created_at` supports inbox, delivery, and receipt queries.
+- `sender_id, status, created_at` supports sender-side status updates.
+- A partial unread index keeps bulk read receipts narrow and avoids scanning already-read rows.
+
+### Socket events
+
+Client to server:
+
+- `message_delivered`
+- `message_read`
+- `conversation_opened`
+
+Server to client:
+
+- `message_status_updated`
+- `message_read_receipt`
+
+Responsibilities:
+
+- `message_delivered` confirms that a recipient device received a message.
+- `message_read` confirms that a specific message was viewed.
+- `conversation_opened` performs bulk read receipts when a thread becomes active.
+- `message_status_updated` informs the sender about state transitions.
+- `message_read_receipt` carries the compact read-receipt payload for the UI.
+
+### Service design
+
+- `messageService.js` persists messages and fetches history.
+- `deliveryService.js` handles `SENT -> DELIVERED` transitions.
+- `readReceiptService.js` handles `DELIVERED -> READ` transitions and bulk conversation receipts.
+
+The transition rules are centralized in [src/utils/messageStatus.js](src/utils/messageStatus.js) so invalid downgrades such as `READ -> DELIVERED` are rejected consistently.
+
+### Delivery logic
+
+If the recipient is online, the server upgrades the message to `DELIVERED` right away and emits it to the recipient's user room.
+
+If the recipient is offline, the message stays `SENT` until the user reconnects and opens the conversation. That keeps the state accurate without writing fake delivery events.
+
+### Read receipt logic
+
+When a user opens a conversation, the server identifies unread messages from the other participant, updates them in bulk, and notifies the sender.
+
+Bulk updates are necessary because they reduce round-trips, reduce socket spam, and let the server reconcile a backlog of unread messages in one transaction.
+
+### Performance considerations
+
+- Use bulk updates instead of one database write per message.
+- Keep delivery and read operations idempotent so duplicate socket events are harmless.
+- Emit one aggregated receipt on `conversation_opened` instead of a stream of per-message notifications.
+- Index by `conversation_id`, `status`, and `created_at` to keep the hot queries narrow.
+- Use the existing user room to notify only the sockets that need the update.
+
+### Edge cases
+
+- Multiple devices are supported because all sockets for a user share the user room.
+- Multiple tabs are supported because repeated delivery and read events are no-ops.
+- Reconnection is handled by re-processing pending `SENT` messages on conversation open.
+- Duplicate events are ignored by the state machine.
+- Delayed delivery is resolved when the recipient comes back online.
+
+### Scalability discussion
+
+Read receipts are more expensive than messages because they create extra writes and notifications on top of the base message traffic.
+
+This single-server design works because all sockets share one process and one PostgreSQL writer. At scale, multiple Node.js servers will fragment receipts unless the state is shared. Redis Pub/Sub is the natural next step for cross-server socket fan-out, and Kafka would only be useful later if you want a durable downstream event stream.
+
+### Example frontend flow
+
+```text
+send_message -> message_received -> message_delivered -> conversation_opened -> message_read
+```
+
+### Sequence diagrams
+
+#### Sending message
+
+```mermaid
+sequenceDiagram
+	participant A as User A
+	participant S as Socket.IO Server
+	participant DB as PostgreSQL
+	participant B as User B
+	A->>S: send_message
+	S->>DB: insert message with status=SENT
+	DB-->>S: stored message
+	S->>DB: upgrade to DELIVERED if B is online
+	S-->>B: message_received
+	S-->>A: message_status_updated
+```
+
+#### Read receipt flow
+
+```mermaid
+sequenceDiagram
+	participant B as User B
+	participant S as Socket.IO Server
+	participant DB as PostgreSQL
+	participant A as User A
+	B->>S: conversation_opened
+	S->>DB: bulk update unread messages
+	DB-->>S: delivered + read messages
+	S-->>A: message_read_receipt
+	S-->>A: message_status_updated
 ```

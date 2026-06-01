@@ -18,9 +18,26 @@ const typingEventSchema = z.object({
   conversationId: z.string().uuid()
 });
 
+const deliveryEventSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid()
+});
+
+const readReceiptEventSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid().optional()
+});
+
+const conversationOpenedSchema = z.object({
+  conversationId: z.string().uuid()
+});
+
 module.exports = {
   joinConversationSchema,
   leaveConversationSchema,
   sendMessageSchema,
-  typingEventSchema
+  typingEventSchema,
+  deliveryEventSchema,
+  readReceiptEventSchema,
+  conversationOpenedSchema
 };

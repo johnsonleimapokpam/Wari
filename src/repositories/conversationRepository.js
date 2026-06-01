@@ -61,6 +61,21 @@ const findConversationMember = async (conversationId, userId) => {
   return result.rows[0] || null;
 };
 
+const findOtherConversationMemberUserId = async (conversationId, userId) => {
+  const result = await query(
+    `
+      SELECT user_id
+      FROM conversation_members
+      WHERE conversation_id = $1
+        AND user_id <> $2
+      LIMIT 1
+    `,
+    [conversationId, userId]
+  );
+
+  return result.rows[0] || null;
+};
+
 const findDirectConversationByKey = async (directKey) => {
   const result = await query(
     `
@@ -146,6 +161,7 @@ module.exports = {
   findConversationById,
   findConversationMember,
   findDirectConversationByKey,
+  findOtherConversationMemberUserId,
   listConversationsForUser,
   mapConversation
 };

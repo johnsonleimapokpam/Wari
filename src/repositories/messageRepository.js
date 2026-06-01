@@ -1,4 +1,5 @@
 const { query, withTransaction } = require('../config/db');
+const { MESSAGE_STATUSES } = require('../utils/messageStatus');
 
 const mapMessage = (row) => {
   if (!row) {
@@ -12,6 +13,9 @@ const mapMessage = (row) => {
     messageType: row.message_type,
     body: row.body,
     clientMessageId: row.client_message_id,
+    status: row.status,
+    deliveredAt: row.delivered_at,
+    readAt: row.read_at,
     metadata: row.metadata,
     editedAt: row.edited_at,
     deletedAt: row.deleted_at,
@@ -30,7 +34,7 @@ const createMessage = async ({ conversationId, senderId, body, clientMessageId }
           INSERT INTO messages (conversation_id, sender_id, body, client_message_id)
           VALUES ($1, $2, $3, $4)
           ON CONFLICT (conversation_id, client_message_id) WHERE client_message_id IS NOT NULL DO NOTHING
-          RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+          RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
         `,
         [conversationId, senderId, body, clientMessageId]
       );
@@ -39,7 +43,7 @@ const createMessage = async ({ conversationId, senderId, body, clientMessageId }
         `
           INSERT INTO messages (conversation_id, sender_id, body)
           VALUES ($1, $2, $3)
-          RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+            RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
         `,
         [conversationId, senderId, body]
       );
@@ -51,7 +55,7 @@ const createMessage = async ({ conversationId, senderId, body, clientMessageId }
     if (!row && clientMessageId) {
       const existingResult = await client.query(
         `
-          SELECT id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+          SELECT id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
           FROM messages
           WHERE conversation_id = $1
             AND client_message_id = $2
@@ -84,10 +88,78 @@ const createMessage = async ({ conversationId, senderId, body, clientMessageId }
   });
 };
 
+const findMessageById = async (messageId) => {
+  const result = await query(
+    `
+      SELECT id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
+      FROM messages
+      WHERE id = $1 AND deleted_at IS NULL
+      LIMIT 1
+    `,
+    [messageId]
+  );
+
+  return result.rows[0] || null;
+};
+
+const updateMessageStatus = async ({ messageId, status, deliveredAt, readAt }) => {
+  const result = await query(
+    `
+      UPDATE messages
+      SET status = $2,
+          delivered_at = COALESCE($3, delivered_at),
+          read_at = COALESCE($4, read_at)
+      WHERE id = $1
+        AND deleted_at IS NULL
+      RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
+    `,
+    [messageId, status, deliveredAt || null, readAt || null]
+  );
+
+  return result.rows[0] || null;
+};
+
+const markConversationMessagesDelivered = async ({ conversationId, recipientUserId, deliveredAt = new Date() }) => {
+  const result = await query(
+    `
+      UPDATE messages
+      SET status = $3,
+          delivered_at = COALESCE(delivered_at, $4)
+      WHERE conversation_id = $1
+        AND sender_id <> $2
+        AND status = $5
+        AND deleted_at IS NULL
+      RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
+    `,
+    [conversationId, recipientUserId, MESSAGE_STATUSES.DELIVERED, deliveredAt, MESSAGE_STATUSES.SENT]
+  );
+
+  return result.rows.map(mapMessage);
+};
+
+const markConversationMessagesRead = async ({ conversationId, readerUserId, readAt = new Date() }) => {
+  const result = await query(
+    `
+      UPDATE messages
+      SET status = $3,
+          delivered_at = COALESCE(delivered_at, $4),
+          read_at = COALESCE(read_at, $4)
+      WHERE conversation_id = $1
+        AND sender_id <> $2
+        AND status IN ($5, $6)
+        AND deleted_at IS NULL
+      RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
+    `,
+    [conversationId, readerUserId, MESSAGE_STATUSES.READ, readAt, MESSAGE_STATUSES.SENT, MESSAGE_STATUSES.DELIVERED]
+  );
+
+  return result.rows.map(mapMessage);
+};
+
 const listMessagesByConversation = async ({ conversationId, limit = 50, before = null }) => {
   const result = await query(
     `
-      SELECT id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+      SELECT id, conversation_id, sender_id, message_type, body, client_message_id, status, delivered_at, read_at, metadata, edited_at, deleted_at, created_at, updated_at
       FROM messages
       WHERE conversation_id = $1
         AND deleted_at IS NULL
@@ -103,6 +175,10 @@ const listMessagesByConversation = async ({ conversationId, limit = 50, before =
 
 module.exports = {
   createMessage,
+  findMessageById,
   listMessagesByConversation,
+  markConversationMessagesDelivered,
+  markConversationMessagesRead,
+  updateMessageStatus,
   mapMessage
 };
