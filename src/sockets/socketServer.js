@@ -3,6 +3,7 @@ const { env } = require('../config/env');
 const { socketAuth } = require('./socketAuth');
 const { registerMessageHandlers } = require('./messageHandlers');
 const { registerRoomHandlers } = require('./roomHandlers');
+const { registerPresenceHandlers } = require('./presenceHandlers');
 
 const createSocketState = () => ({
   roomPresence: new Map()
@@ -28,6 +29,7 @@ const initializeSocketServer = (httpServer) => {
 
     registerRoomHandlers(socket, io, state);
     registerMessageHandlers(socket, io, state);
+    registerPresenceHandlers(socket, io);
   });
 
   return io;

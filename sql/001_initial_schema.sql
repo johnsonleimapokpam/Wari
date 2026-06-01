@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_url TEXT,
     bio TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    last_seen_at TIMESTAMPTZ,
+    last_seen TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,

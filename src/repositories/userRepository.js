@@ -13,7 +13,7 @@ const mapUser = (row) => {
     avatarUrl: row.avatar_url,
     bio: row.bio,
     isActive: row.is_active,
-    lastSeenAt: row.last_seen_at,
+    lastSeenAt: row.last_seen,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -22,7 +22,7 @@ const mapUser = (row) => {
 const findAuthRecordByEmail = async (email) => {
   const result = await query(
     `
-      SELECT id, email, password_hash, first_name, last_name, avatar_url, bio, is_active, last_seen_at, created_at, updated_at
+      SELECT id, email, password_hash, first_name, last_name, avatar_url, bio, is_active, last_seen, created_at, updated_at
       FROM users
       WHERE email = $1 AND deleted_at IS NULL
       LIMIT 1
@@ -36,7 +36,7 @@ const findAuthRecordByEmail = async (email) => {
 const findById = async (id) => {
   const result = await query(
     `
-      SELECT id, email, first_name, last_name, avatar_url, bio, is_active, last_seen_at, created_at, updated_at
+      SELECT id, email, first_name, last_name, avatar_url, bio, is_active, last_seen, created_at, updated_at
       FROM users
       WHERE id = $1 AND deleted_at IS NULL
       LIMIT 1
@@ -52,7 +52,7 @@ const createUser = async ({ email, passwordHash, firstName, lastName }) => {
     `
       INSERT INTO users (email, password_hash, first_name, last_name)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, email, first_name, last_name, avatar_url, bio, is_active, last_seen_at, created_at, updated_at
+      RETURNING id, email, first_name, last_name, avatar_url, bio, is_active, last_seen, created_at, updated_at
     `,
     [email, passwordHash, firstName, lastName]
   );
@@ -96,9 +96,23 @@ const updateProfile = async (userId, updates) => {
       UPDATE users
       SET ${fields.join(', ')}
       WHERE id = $${index} AND deleted_at IS NULL
-      RETURNING id, email, first_name, last_name, avatar_url, bio, is_active, last_seen_at, created_at, updated_at
+      RETURNING id, email, first_name, last_name, avatar_url, bio, is_active, last_seen, created_at, updated_at
     `,
     values
+  );
+
+  return mapUser(result.rows[0]);
+};
+
+const updateLastSeen = async (userId, lastSeenAt = new Date()) => {
+  const result = await query(
+    `
+      UPDATE users
+      SET last_seen = $1
+      WHERE id = $2 AND deleted_at IS NULL
+      RETURNING id, email, first_name, last_name, avatar_url, bio, is_active, last_seen, created_at, updated_at
+    `,
+    [lastSeenAt, userId]
   );
 
   return mapUser(result.rows[0]);
@@ -108,6 +122,7 @@ module.exports = {
   createUser,
   findAuthRecordByEmail,
   findById,
+  updateLastSeen,
   updateProfile,
   mapUser
 };

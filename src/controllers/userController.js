@@ -1,6 +1,7 @@
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/apiResponse');
 const userService = require('../services/userService');
+const presenceService = require('../services/presenceService');
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await userService.getCurrentUser(req.user.id);
@@ -32,8 +33,19 @@ const getUserById = asyncHandler(async (req, res) => {
   });
 });
 
+const getUserPresence = asyncHandler(async (req, res) => {
+  const presence = await presenceService.getPresence(req.params.id);
+
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: 'User presence retrieved successfully',
+    data: presence
+  });
+});
+
 module.exports = {
   getCurrentUser,
   updateProfile,
-  getUserById
+  getUserById,
+  getUserPresence
 };

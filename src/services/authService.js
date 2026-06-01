@@ -3,6 +3,7 @@ const ApiError = require('../utils/ApiError');
 const { env } = require('../config/env');
 const { generateAccessToken } = require('../utils/jwt');
 const userRepository = require('../repositories/userRepository');
+const presenceService = require('./presenceService');
 
 const buildAuthPayload = (user) => ({
   user,
@@ -51,7 +52,16 @@ const login = async ({ email, password }) => {
   return buildAuthPayload(user);
 };
 
+const logout = async ({ userId }) => {
+  await presenceService.recordLogout({ userId });
+
+  return {
+    userId
+  };
+};
+
 module.exports = {
   register,
-  login
+  login,
+  logout
 };

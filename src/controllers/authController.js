@@ -22,7 +22,18 @@ const login = asyncHandler(async (req, res) => {
   });
 });
 
+const logout = asyncHandler(async (req, res) => {
+  await authService.logout({ userId: req.user.id });
+
+  return sendSuccess(res, {
+    statusCode: 200,
+    message: 'Logout successful',
+    data: null
+  });
+});
+
 module.exports = {
   register,
-  login
+  login,
+  logout
 };

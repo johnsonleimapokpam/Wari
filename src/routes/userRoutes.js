@@ -8,6 +8,7 @@ const router = express.Router();
 
 router.get('/me', authMiddleware, userController.getCurrentUser);
 router.put('/me', authMiddleware, validate(updateProfileSchema), userController.updateProfile);
+router.get('/:id/presence', authMiddleware, validate(userIdParamSchema), userController.getUserPresence);
 router.get('/:id', authMiddleware, validate(userIdParamSchema), userController.getUserById);
 
 module.exports = router;
