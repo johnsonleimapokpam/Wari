@@ -34,8 +34,8 @@ const initializeSocketServer = (httpServer) => {
     registerTypingHandlers(socket, io);
     registerDeliveryHandlers(socket, io);
     registerReadReceiptHandlers(socket, io);
-    registerRoomHandlers(socket, io, state);
     registerMessageHandlers(socket, io, state);
+    registerRoomHandlers(socket, io, state);
   });
 
   return io;

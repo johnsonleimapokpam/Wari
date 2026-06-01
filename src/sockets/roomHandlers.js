@@ -3,6 +3,19 @@ const conversationRepository = require('../repositories/conversationRepository')
 const { joinConversationSchema, leaveConversationSchema } = require('./socketSchemas');
 
 const roomNameForConversation = (conversationId) => `conversation:${conversationId}`;
+const groupRoomNameForConversation = (conversationId) => `group:${conversationId}`;
+
+const resolveConversationRoomName = async (conversationId) => {
+  const conversation = await conversationRepository.findConversationById(conversationId);
+
+  if (!conversation) {
+    throw new ApiError(404, 'Conversation not found', { code: 'CONVERSATION_NOT_FOUND' });
+  }
+
+  return conversation.conversation_type === 'group'
+    ? groupRoomNameForConversation(conversationId)
+    : roomNameForConversation(conversationId);
+};
 
 const getRoomPresenceMap = (state, roomName) => {
   if (!state.roomPresence.has(roomName)) {
@@ -60,7 +73,7 @@ const joinConversationRoom = async (socket, io, state, payload, ack) => {
     });
   }
 
-  const roomName = roomNameForConversation(conversationId);
+  const roomName = await resolveConversationRoomName(conversationId);
   const isAlreadyJoined = socket.data.joinedConversationIds.has(roomName);
 
   if (!isAlreadyJoined) {
@@ -88,7 +101,7 @@ const joinConversationRoom = async (socket, io, state, payload, ack) => {
 
 const leaveConversationRoom = async (socket, io, state, payload, ack) => {
   const { conversationId } = validatePayload(leaveConversationSchema, payload);
-  const roomName = roomNameForConversation(conversationId);
+  const roomName = await resolveConversationRoomName(conversationId);
   const isJoined = socket.data.joinedConversationIds.has(roomName);
 
   if (isJoined) {
@@ -182,6 +195,8 @@ const registerRoomHandlers = (socket, io, state) => {
 
 module.exports = {
   registerRoomHandlers,
+  groupRoomNameForConversation,
+  resolveConversationRoomName,
   roomNameForConversation,
   serializeSocketUser
 };

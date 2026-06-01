@@ -3,6 +3,7 @@ const deliveryService = require('../services/deliveryService');
 const messageRepository = require('../repositories/messageRepository');
 const conversationRepository = require('../repositories/conversationRepository');
 const { deliveryEventSchema } = require('./socketSchemas');
+const { resolveConversationRoomName } = require('./roomHandlers');
 
 const validatePayload = (payload) => {
   const result = deliveryEventSchema.safeParse(payload);
@@ -36,7 +37,9 @@ const registerDeliveryHandlers = (socket, io) => {
     try {
       const data = validatePayload(payload);
 
-      if (!socket.data.joinedConversationIds.has(`conversation:${data.conversationId}`)) {
+      const roomName = await resolveConversationRoomName(data.conversationId);
+
+      if (!socket.data.joinedConversationIds.has(roomName)) {
         throw new ApiError(403, 'You must join the conversation before sending delivery acknowledgements', {
           code: 'NOT_JOINED_CONVERSATION_ROOM'
         });

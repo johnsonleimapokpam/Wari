@@ -2,7 +2,7 @@ const messageService = require('../services/messageService');
 const deliveryService = require('../services/deliveryService');
 const ApiError = require('../utils/ApiError');
 const { sendMessageSchema } = require('./socketSchemas');
-const { roomNameForConversation, serializeSocketUser } = require('./roomHandlers');
+const { resolveConversationRoomName, serializeSocketUser } = require('./roomHandlers');
 const conversationRepository = require('../repositories/conversationRepository');
 const presenceService = require('../services/presenceService');
 
@@ -58,6 +58,19 @@ const registerMessageHandlers = (socket, io) => {
   socket.on('send_message', async (payload, ack) => {
     try {
       const data = validatePayload(payload);
+      const conversation = await conversationRepository.findConversationById(data.conversationId);
+
+      if (!conversation) {
+        throw new ApiError(404, 'Conversation not found', { code: 'CONVERSATION_NOT_FOUND' });
+      }
+
+      const roomName = await resolveConversationRoomName(data.conversationId);
+
+      if (!socket.data.joinedConversationIds.has(roomName)) {
+        throw new ApiError(403, 'You must join the conversation before sending messages', {
+          code: 'NOT_JOINED_CONVERSATION_ROOM'
+        });
+      }
 
       const result = await messageService.sendMessage({
         conversationId: data.conversationId,
@@ -65,6 +78,40 @@ const registerMessageHandlers = (socket, io) => {
         body: data.body,
         clientMessageId: data.clientMessageId
       });
+
+      if (result.conversationType === 'group') {
+          if (!result.isDuplicate) {
+            io.to(roomName).emit('message_received', {
+              message: result.message,
+              conversationId: data.conversationId,
+              sender: serializeSocketUser(socket)
+            });
+
+            io.to(`user:${socket.data.user.id}`).emit('message_status_updated', {
+              conversationId: data.conversationId,
+              messageId: result.message.id,
+              status: result.message.status,
+              deliveredCount: result.delivery.deliveredCount,
+              recipientCount: result.delivery.recipientCount,
+              senderId: socket.data.user.id
+            });
+          }
+
+        if (typeof ack === 'function') {
+          ack({
+            success: true,
+            message: result.message,
+            meta: {
+              duplicate: result.isDuplicate,
+              delivered: result.delivery.deliveredCount > 0,
+              recipientCount: result.delivery.recipientCount,
+              deliveredCount: result.delivery.deliveredCount
+            }
+          });
+        }
+
+        return;
+      }
 
       const otherMember = await conversationRepository.findOtherConversationMemberUserId(data.conversationId, socket.data.user.id);
 

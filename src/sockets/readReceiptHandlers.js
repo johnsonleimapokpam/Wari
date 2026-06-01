@@ -2,6 +2,9 @@ const ApiError = require('../utils/ApiError');
 const messageRepository = require('../repositories/messageRepository');
 const readReceiptService = require('../services/readReceiptService');
 const { readReceiptEventSchema, conversationOpenedSchema } = require('./socketSchemas');
+const conversationRepository = require('../repositories/conversationRepository');
+const groupMessageService = require('../services/groupMessageService');
+const { resolveConversationRoomName } = require('./roomHandlers');
 
 const validatePayload = (schema, payload) => {
   const result = schema.safeParse(payload);
@@ -41,10 +44,44 @@ const registerReadReceiptHandlers = (socket, io) => {
     try {
       const data = validatePayload(readReceiptEventSchema, payload);
 
-      if (!socket.data.joinedConversationIds.has(`conversation:${data.conversationId}`)) {
+      const roomName = await resolveConversationRoomName(data.conversationId);
+
+      if (!socket.data.joinedConversationIds.has(roomName)) {
         throw new ApiError(403, 'You must join the conversation before sending read receipts', {
           code: 'NOT_JOINED_CONVERSATION_ROOM'
         });
+      }
+
+      const conversation = await conversationRepository.findConversationById(data.conversationId);
+
+      if (!conversation) {
+        throw new ApiError(404, 'Conversation not found', { code: 'CONVERSATION_NOT_FOUND' });
+      }
+
+      if (conversation.conversation_type === 'group') {
+        if (!data.messageId) {
+          throw new ApiError(400, 'messageId is required for group message receipts', {
+            code: 'MESSAGE_ID_REQUIRED'
+          });
+        }
+
+        const receipt = await groupMessageService.markMessageDelivered({
+          groupId: data.conversationId,
+          messageId: data.messageId,
+          userId: socket.data.user.id
+        });
+
+        if (typeof ack === 'function') {
+          ack({
+            success: true,
+            data: receipt,
+            meta: {
+              updated: Boolean(receipt)
+            }
+          });
+        }
+
+        return;
       }
 
       if (!data.messageId) {
@@ -114,10 +151,69 @@ const registerReadReceiptHandlers = (socket, io) => {
     try {
       const data = validatePayload(conversationOpenedSchema, payload);
 
-      if (!socket.data.joinedConversationIds.has(`conversation:${data.conversationId}`)) {
+      const roomName = await resolveConversationRoomName(data.conversationId);
+
+      if (!socket.data.joinedConversationIds.has(roomName)) {
         throw new ApiError(403, 'You must join the conversation before opening it', {
           code: 'NOT_JOINED_CONVERSATION_ROOM'
         });
+      }
+
+      const conversation = await conversationRepository.findConversationById(data.conversationId);
+
+      if (!conversation) {
+        throw new ApiError(404, 'Conversation not found', { code: 'CONVERSATION_NOT_FOUND' });
+      }
+
+      if (conversation.conversation_type === 'group') {
+        const receipts = await groupMessageService.markConversationRead({
+          groupId: data.conversationId,
+          readerUserId: socket.data.user.id
+        });
+
+        const receiptBySender = new Map();
+
+        for (const receipt of receipts) {
+          const message = await messageRepository.findMessageById(receipt.message_id);
+
+          if (!message) {
+            continue;
+          }
+
+          if (!receiptBySender.has(message.sender_id)) {
+            receiptBySender.set(message.sender_id, []);
+          }
+
+          receiptBySender.get(message.sender_id).push({
+            messageId: receipt.message_id,
+            readAt: receipt.read_at,
+            status: 'READ'
+          });
+        }
+
+        for (const [senderUserId, senderReceipts] of receiptBySender.entries()) {
+          io.to(`user:${senderUserId}`).emit('message_read_receipt', {
+            conversationId: data.conversationId,
+            receipts: senderReceipts
+          });
+
+          io.to(`user:${senderUserId}`).emit('message_status_updated', {
+            conversationId: data.conversationId,
+            status: 'READ',
+            receipts: senderReceipts
+          });
+        }
+
+        if (typeof ack === 'function') {
+          ack({
+            success: true,
+            data: {
+              readCount: receipts.length
+            }
+          });
+        }
+
+        return;
       }
 
       const result = await readReceiptService.markConversationRead({

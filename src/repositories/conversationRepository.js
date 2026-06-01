@@ -9,10 +9,15 @@ const mapConversation = (row) => {
     id: row.id,
     conversationType: row.conversation_type,
     directKey: row.direct_key,
+    title: row.title,
+    description: row.description,
+    avatarUrl: row.avatar_url,
+    ownerUserId: row.owner_user_id,
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
+    deletedAt: row.deleted_at,
     lastMessage: row.last_message_id
       ? {
           id: row.last_message_id,
@@ -36,9 +41,9 @@ const mapConversation = (row) => {
 const findConversationById = async (conversationId) => {
   const result = await query(
     `
-      SELECT id, conversation_type, direct_key, created_by_user_id, last_message_id, created_at, updated_at, archived_at
+      SELECT id, conversation_type, direct_key, title, description, avatar_url, owner_user_id, created_by_user_id, last_message_id, created_at, updated_at, archived_at, deleted_at
       FROM conversations
-      WHERE id = $1 AND archived_at IS NULL
+      WHERE id = $1 AND deleted_at IS NULL
       LIMIT 1
     `,
     [conversationId]
@@ -50,7 +55,7 @@ const findConversationById = async (conversationId) => {
 const findConversationMember = async (conversationId, userId) => {
   const result = await query(
     `
-      SELECT conversation_id, user_id, joined_at, last_read_message_id, last_read_at, is_muted, is_archived
+      SELECT conversation_id, user_id, joined_at, last_read_message_id, last_read_at, is_muted, is_archived, role, left_at, added_by_user_id
       FROM conversation_members
       WHERE conversation_id = $1 AND user_id = $2
       LIMIT 1
@@ -68,6 +73,7 @@ const findOtherConversationMemberUserId = async (conversationId, userId) => {
       FROM conversation_members
       WHERE conversation_id = $1
         AND user_id <> $2
+        AND left_at IS NULL
       LIMIT 1
     `,
     [conversationId, userId]
@@ -79,9 +85,9 @@ const findOtherConversationMemberUserId = async (conversationId, userId) => {
 const findDirectConversationByKey = async (directKey) => {
   const result = await query(
     `
-      SELECT id, conversation_type, direct_key, created_by_user_id, last_message_id, created_at, updated_at, archived_at
+      SELECT id, conversation_type, direct_key, title, description, avatar_url, owner_user_id, created_by_user_id, last_message_id, created_at, updated_at, archived_at, deleted_at
       FROM conversations
-      WHERE direct_key = $1 AND archived_at IS NULL
+      WHERE direct_key = $1 AND deleted_at IS NULL
       LIMIT 1
     `,
     [directKey]
@@ -122,11 +128,16 @@ const listConversationsForUser = async (userId) => {
         c.id,
         c.conversation_type,
         c.direct_key,
+        c.title,
+        c.description,
+        c.avatar_url,
+        c.owner_user_id,
         c.created_by_user_id,
         c.last_message_id,
         c.created_at,
         c.updated_at,
         c.archived_at,
+        c.deleted_at,
         lm.body AS last_message_body,
         lm.created_at AS last_message_created_at,
         lm.sender_id AS last_message_sender_id,
@@ -140,6 +151,7 @@ const listConversationsForUser = async (userId) => {
         ON me.conversation_id = c.id
        AND me.user_id = $1
        AND me.is_archived = false
+       AND me.left_at IS NULL
       INNER JOIN conversation_members other_member
         ON other_member.conversation_id = c.id
        AND other_member.user_id <> $1
@@ -148,6 +160,7 @@ const listConversationsForUser = async (userId) => {
       LEFT JOIN messages lm
         ON lm.id = c.last_message_id
       WHERE c.archived_at IS NULL
+        AND c.deleted_at IS NULL
       ORDER BY COALESCE(lm.created_at, c.updated_at) DESC
     `,
     [userId]

@@ -2,7 +2,7 @@ const ApiError = require('../utils/ApiError');
 const conversationRepository = require('../repositories/conversationRepository');
 const typingService = require('../services/typingService');
 const { typingEventSchema } = require('./socketSchemas');
-const { roomNameForConversation, serializeSocketUser } = require('./roomHandlers');
+const { groupRoomNameForConversation, resolveConversationRoomName, serializeSocketUser } = require('./roomHandlers');
 
 const validatePayload = (payload) => {
   const result = typingEventSchema.safeParse(payload);
@@ -35,7 +35,7 @@ const emitTypingError = (socket, ack, error) => {
 };
 
 const broadcastTypingStart = (socket, io, conversationId) => {
-  const roomName = roomNameForConversation(conversationId);
+  const roomName = socket.data.typingRoomName || groupRoomNameForConversation(conversationId);
 
   socket.to(roomName).emit('user_typing', {
     conversationId,
@@ -44,7 +44,7 @@ const broadcastTypingStart = (socket, io, conversationId) => {
 };
 
 const broadcastTypingStop = (socket, io, conversationId) => {
-  const roomName = roomNameForConversation(conversationId);
+  const roomName = socket.data.typingRoomName || groupRoomNameForConversation(conversationId);
 
   socket.to(roomName).emit('user_stopped_typing', {
     conversationId,
@@ -61,7 +61,8 @@ const ensureConversationAccess = async (socket, conversationId) => {
     });
   }
 
-  const roomName = roomNameForConversation(conversationId);
+  const roomName = await resolveConversationRoomName(conversationId);
+  socket.data.typingRoomName = roomName;
 
   if (!socket.data.joinedConversationIds.has(roomName)) {
     throw new ApiError(403, 'You must join the conversation before sending typing events', {

@@ -10,6 +10,8 @@ Phase 4 adds typing indicators using Socket.IO and in-memory state only.
 
 Phase 5 adds message life cycle sent-> delivered-> read
 
+Phase 6 adds group chat with roles, group rooms, and per-recipient receipts.
+
 ## Folder Structure
 
 - `src/config` - environment parsing and database connectivity
@@ -377,6 +379,133 @@ Bulk updates are necessary because they reduce round-trips, reduce socket spam, 
 Read receipts are more expensive than messages because they create extra writes and notifications on top of the base message traffic.
 
 This single-server design works because all sockets share one process and one PostgreSQL writer. At scale, multiple Node.js servers will fragment receipts unless the state is shared. Redis Pub/Sub is the natural next step for cross-server socket fan-out, and Kafka would only be useful later if you want a durable downstream event stream.
+
+## Phase 6 Group Chat
+
+Phase 6 keeps the same unified `conversations` model and extends it for group chat instead of adding a separate set of group tables.
+
+### Why a unified model
+
+- Direct and group chats both need membership checks, last-message tracking, history, and socket rooms.
+- A shared conversation model keeps the access rules and message storage path consistent.
+- Separate direct and group tables would duplicate most of the repository and socket logic.
+
+The tradeoff is that group-specific behavior now lives in role-aware services and receipt tables instead of a separate group subsystem. That is deliberate: the code stays narrower, and future features such as moderation, invites, and pinned messages can still layer on top.
+
+### Group roles
+
+- `OWNER` controls the group and can delete it.
+- `ADMIN` can manage members and group metadata.
+- `MEMBER` can participate in the conversation.
+
+Authorization lives in `membershipService.js` and `groupService.js`, while `conversation_members.role` is the durable source of truth.
+
+### Room design
+
+Group conversations use Socket.IO rooms named `group:<id>`.
+
+Room lifecycle:
+
+1. The client joins the conversation over REST or Socket.IO.
+2. The socket handler resolves the room name from the conversation type.
+3. The socket joins `group:<id>` and remains subscribed until it leaves or disconnects.
+4. Message broadcasts fan out to that room, while presence and delivery updates still use per-user rooms when the sender needs acknowledgement.
+
+### Presence integration
+
+Group message delivery uses the in-memory presence service to detect which recipients are online.
+
+- Online members receive an immediate per-recipient delivery receipt.
+- Offline members keep an unread receipt row until they reconnect or open the conversation.
+- The sender still receives a single aggregate status update for the group message.
+
+### Group read receipts
+
+Group read tracking is stored in `message_receipts`, one row per message and recipient.
+
+- `delivered_at` starts as `null` for every recipient.
+- Online recipients are marked delivered individually.
+- When a member opens the group, unread receipts are marked read in bulk.
+- The message summary is derived from receipt counts, not from a single shared status flag.
+
+That design is more scalable than a single group-wide status because every member can be at a different delivery or read stage.
+
+### Scalability discussion
+
+- At 10 users, the current single Node.js + PostgreSQL setup is simple and easy to debug.
+- At 1,000 users, the main pressure is receipt writes and socket fan-out, but the room model still works.
+- At 100,000 users, in-memory presence and single-process broadcasting stop being enough; Redis Pub/Sub would be the first infrastructure upgrade, and a background event pipeline would become more attractive if downstream consumers need message events.
+
+### Sequence diagrams
+
+#### Create group
+
+```mermaid
+sequenceDiagram
+	participant A as Owner
+	participant S as API Server
+	participant DB as PostgreSQL
+	A->>S: POST /api/groups
+	S->>DB: create conversation + members + OWNER role
+	DB-->>S: group created
+	S-->>A: group payload
+```
+
+#### Add member
+
+```mermaid
+sequenceDiagram
+	participant A as Admin
+	participant S as API Server
+	participant DB as PostgreSQL
+	A->>S: POST /api/groups/:id/members
+	S->>DB: check role + upsert membership
+	DB-->>S: member added
+	S-->>A: membership payload
+```
+
+#### Send group message
+
+```mermaid
+sequenceDiagram
+	participant C as Sender
+	participant S as Socket.IO Server
+	participant DB as PostgreSQL
+	participant R as group:<id>
+	participant M as Members
+	C->>S: send_message
+	S->>DB: persist message + create receipts
+	DB-->>S: stored message
+	S->>R: message_received
+	R-->>M: realtime broadcast
+```
+
+#### Leave group
+
+```mermaid
+sequenceDiagram
+	participant U as Member
+	participant S as API Server
+	participant DB as PostgreSQL
+	U->>S: POST /api/groups/:id/leave
+	S->>DB: mark member left
+	DB-->>S: membership updated
+	S-->>U: success
+```
+
+#### Read receipt
+
+```mermaid
+sequenceDiagram
+	participant U as Reader
+	participant S as Socket.IO Server
+	participant DB as PostgreSQL
+	participant A as Sender
+	U->>S: conversation_opened
+	S->>DB: bulk mark receipts read
+	DB-->>S: updated receipts
+	S->>A: message_read_receipt
+```
 
 ### Example frontend flow
 

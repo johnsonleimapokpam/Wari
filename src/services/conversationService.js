@@ -49,8 +49,19 @@ const getConversationList = async (userId) => {
   return conversationRepository.listConversationsForUser(userId);
 };
 
+const getConversation = async (conversationId) => {
+  const conversation = await conversationRepository.findConversationById(conversationId);
+
+  if (!conversation) {
+    throw new ApiError(404, 'Conversation not found', { code: 'CONVERSATION_NOT_FOUND' });
+  }
+
+  return conversationRepository.mapConversation(conversation);
+};
+
 module.exports = {
   createConversation,
   getConversationList,
-  buildDirectKey
+  buildDirectKey,
+  getConversation
 };

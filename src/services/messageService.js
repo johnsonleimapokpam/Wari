@@ -17,12 +17,42 @@ const sendMessage = async ({ conversationId, senderId, body, clientMessageId }) 
     });
   }
 
-  return messageRepository.createMessage({
+  if (conversation.conversation_type === 'group') {
+    const groupMessageService = require('./groupMessageService');
+
+    const result = await groupMessageService.createMessage({
+      groupId: conversationId,
+      senderId,
+      body,
+      clientMessageId
+    });
+
+    return {
+      message: result.message,
+      isDuplicate: result.isDuplicate,
+      conversationType: 'group',
+      delivery: {
+        recipientCount: result.recipientCount,
+        deliveredCount: result.deliveredCount
+      }
+    };
+  }
+
+  const result = await messageRepository.createMessage({
     conversationId,
     senderId,
     body,
     clientMessageId
   });
+
+  return {
+    ...result,
+    conversationType: 'direct',
+    delivery: {
+      recipientCount: 1,
+      deliveredCount: 0
+    }
+  };
 };
 
 const getMessageHistory = async ({ conversationId, userId, limit, before }) => {
