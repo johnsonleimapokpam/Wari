@@ -6,6 +6,8 @@ Phase 2 adds a single-server Socket.IO layer for real-time messaging without int
 
 Phase 3 adds in-memory presence tracking and a `GET /api/users/:id/presence` API.
 
+Phase 4 adds typing indicators using Socket.IO and in-memory state only.
+
 ## Folder Structure
 
 - `src/config` - environment parsing and database connectivity
@@ -13,7 +15,7 @@ Phase 3 adds in-memory presence tracking and a `GET /api/users/:id/presence` API
 - `src/repositories` - SQL access layer
 - `src/middleware` - auth, validation, and error handling
 - `src/routes` - route composition
-- `src/sockets` - Socket.IO server, auth, room management, and message handlers
+- `src/sockets` - Socket.IO server, auth, room management, message handlers, presence, and typing handlers
 - `src/services` - business logic, including the presence service abstraction
 - `src/models` - placeholder for domain notes; phase 1 uses SQL tables and repository mappers instead of an ORM
 - `src/utils` - shared helpers
@@ -162,6 +164,89 @@ Each direct conversation maps to a Socket.IO room named `conversation:<conversat
 This architecture works on one Node.js instance because every connected socket and every room exist in the same memory space. The limitation appears once multiple Node.js instances are introduced: a room join on instance A is invisible to instance B, so broadcasts and presence events stop reaching every participant consistently.
 
 Redis Pub/Sub becomes necessary in Phase 3 because it provides a shared cross-process event bus. Each Node.js instance can publish room events to Redis and subscribe to them, which keeps Socket.IO room fan-out correct across a horizontally scaled cluster.
+
+## Typing Indicators
+
+Typing indicators are ephemeral events and should not be stored in PostgreSQL. Messages and read receipts are durable application state, but typing is only meaningful while a user is actively editing input. Persisting it would create write amplification, stale rows, and cleanup problems without giving clients any durable value.
+
+### Why rooms are used
+
+Typing notifications are broadcast through the existing `conversation:<conversationId>` room so only the participants in that conversation receive the event. That avoids polling and avoids sending typing updates to unrelated users.
+
+### Event lifecycle
+
+1. The frontend detects input and emits `typing_start` for the conversation.
+2. The server validates membership and room participation.
+3. The typing service records the user as active in the conversation.
+4. The server broadcasts `user_typing` to the conversation room.
+5. A 3-second inactivity timer is armed per socket.
+6. If no more input arrives, the timer expires and the server emits `user_stopped_typing`.
+7. If the user explicitly stops typing or disconnects, the same cleanup path runs immediately.
+
+### Typing service design
+
+The typing service uses in-memory maps keyed by `conversationId`, then `userId`, then `socketId`. That lets the server support multiple tabs and devices without duplicating typing notifications. A user is considered typing if at least one of their sockets is active in that conversation.
+
+The cleanup strategy is simple:
+
+- clear the per-socket inactivity timer when typing stops
+- remove the socket id from the active set
+- remove the user entry when the last socket stops
+- remove the conversation entry when no users remain
+
+That keeps memory bounded to currently active typing sessions and avoids leaks.
+
+### Best practices
+
+- Debounce typing events on the client so keypresses do not spam the server.
+- Treat the server timer as a safety net, not the primary source of truth.
+- Ignore repeated `typing_start` events from the same socket while already active.
+- Clear timers on `typing_stop` and `disconnect`.
+- Keep the service interface narrow so Redis can replace the store later without changing socket handlers.
+
+### Scalability discussion
+
+Typing traffic is high-frequency and short-lived, so it becomes noisy at scale. Multiple Node.js instances will each see only their local sockets, which means typing state will fragment unless a shared backplane is introduced later. Redis Pub/Sub is the natural next step because it can propagate `typing_start` and `typing_stop` across all servers without changing the public typing service interface.
+
+### Example frontend flow
+
+```text
+input event -> typing_start -> server broadcasts user_typing -> idle timeout -> user_stopped_typing
+```
+
+### Sequence diagrams
+
+#### Start typing
+
+```mermaid
+sequenceDiagram
+	participant C as Client
+	participant S as Socket.IO Server
+	participant T as Typing Service
+	participant R as Conversation Room
+	participant O as Other Participants
+	C->>S: typing_start
+	S->>T: startTyping(conversationId, userId, socketId)
+	T-->>S: startedTyping
+	S->>R: user_typing
+	R-->>O: typing indicator shown
+```
+
+#### Stop typing
+
+```mermaid
+sequenceDiagram
+	participant C as Client
+	participant S as Socket.IO Server
+	participant T as Typing Service
+	participant R as Conversation Room
+	participant O as Other Participants
+	C->>S: typing_stop or timer expiry
+	S->>T: stopTyping(conversationId, userId, socketId)
+	T-->>S: stoppedTyping
+	S->>R: user_stopped_typing
+	R-->>O: typing indicator hidden
+```
 
 ## Example Frontend Flow
 

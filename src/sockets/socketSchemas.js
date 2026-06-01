@@ -14,8 +14,13 @@ const sendMessageSchema = z.object({
   clientMessageId: z.string().uuid()
 });
 
+const typingEventSchema = z.object({
+  conversationId: z.string().uuid()
+});
+
 module.exports = {
   joinConversationSchema,
   leaveConversationSchema,
-  sendMessageSchema
+  sendMessageSchema,
+  typingEventSchema
 };

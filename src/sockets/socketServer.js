@@ -4,6 +4,7 @@ const { socketAuth } = require('./socketAuth');
 const { registerMessageHandlers } = require('./messageHandlers');
 const { registerRoomHandlers } = require('./roomHandlers');
 const { registerPresenceHandlers } = require('./presenceHandlers');
+const { registerTypingHandlers } = require('./typingHandlers');
 
 const createSocketState = () => ({
   roomPresence: new Map()
@@ -27,9 +28,10 @@ const initializeSocketServer = (httpServer) => {
 
     socket.join(userRoom);
 
+    registerPresenceHandlers(socket, io);
+    registerTypingHandlers(socket, io);
     registerRoomHandlers(socket, io, state);
     registerMessageHandlers(socket, io, state);
-    registerPresenceHandlers(socket, io);
   });
 
   return io;
