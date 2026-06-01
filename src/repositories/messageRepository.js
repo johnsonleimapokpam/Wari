@@ -11,6 +11,7 @@ const mapMessage = (row) => {
     senderId: row.sender_id,
     messageType: row.message_type,
     body: row.body,
+    clientMessageId: row.client_message_id,
     metadata: row.metadata,
     editedAt: row.edited_at,
     deletedAt: row.deleted_at,
@@ -19,16 +20,53 @@ const mapMessage = (row) => {
   };
 };
 
-const createMessage = async ({ conversationId, senderId, body }) => {
+const createMessage = async ({ conversationId, senderId, body, clientMessageId }) => {
   return withTransaction(async (client) => {
-    const result = await client.query(
-      `
-        INSERT INTO messages (conversation_id, sender_id, body)
-        VALUES ($1, $2, $3)
-        RETURNING id, conversation_id, sender_id, message_type, body, metadata, edited_at, deleted_at, created_at, updated_at
-      `,
-      [conversationId, senderId, body]
-    );
+    let insertResult;
+
+    if (clientMessageId) {
+      insertResult = await client.query(
+        `
+          INSERT INTO messages (conversation_id, sender_id, body, client_message_id)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (conversation_id, client_message_id) WHERE client_message_id IS NOT NULL DO NOTHING
+          RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+        `,
+        [conversationId, senderId, body, clientMessageId]
+      );
+    } else {
+      insertResult = await client.query(
+        `
+          INSERT INTO messages (conversation_id, sender_id, body)
+          VALUES ($1, $2, $3)
+          RETURNING id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+        `,
+        [conversationId, senderId, body]
+      );
+    }
+
+    let row = insertResult.rows[0] || null;
+    let isDuplicate = false;
+
+    if (!row && clientMessageId) {
+      const existingResult = await client.query(
+        `
+          SELECT id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
+          FROM messages
+          WHERE conversation_id = $1
+            AND client_message_id = $2
+          LIMIT 1
+        `,
+        [conversationId, clientMessageId]
+      );
+
+      row = existingResult.rows[0] || null;
+      isDuplicate = Boolean(row);
+    }
+
+    if (!row) {
+      throw new Error('Failed to persist message');
+    }
 
     await client.query(
       `
@@ -36,17 +74,20 @@ const createMessage = async ({ conversationId, senderId, body }) => {
         SET last_message_id = $1
         WHERE id = $2
       `,
-      [result.rows[0].id, conversationId]
+      [row.id, conversationId]
     );
 
-    return mapMessage(result.rows[0]);
+    return {
+      message: mapMessage(row),
+      isDuplicate
+    };
   });
 };
 
 const listMessagesByConversation = async ({ conversationId, limit = 50, before = null }) => {
   const result = await query(
     `
-      SELECT id, conversation_id, sender_id, message_type, body, metadata, edited_at, deleted_at, created_at, updated_at
+      SELECT id, conversation_id, sender_id, message_type, body, client_message_id, metadata, edited_at, deleted_at, created_at, updated_at
       FROM messages
       WHERE conversation_id = $1
         AND deleted_at IS NULL

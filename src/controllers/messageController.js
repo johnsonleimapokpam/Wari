@@ -3,16 +3,20 @@ const { sendSuccess } = require('../utils/apiResponse');
 const messageService = require('../services/messageService');
 
 const sendMessage = asyncHandler(async (req, res) => {
-  const message = await messageService.sendMessage({
+  const result = await messageService.sendMessage({
     conversationId: req.body.conversationId,
     senderId: req.user.id,
-    body: req.body.body
+    body: req.body.body,
+    clientMessageId: req.body.clientMessageId || null
   });
 
   return sendSuccess(res, {
     statusCode: 201,
-    message: 'Message sent successfully',
-    data: message
+    message: result.isDuplicate ? 'Message already processed' : 'Message sent successfully',
+    data: result.message,
+    meta: {
+      duplicate: result.isDuplicate
+    }
   });
 });
 

@@ -2,7 +2,7 @@ const ApiError = require('../utils/ApiError');
 const conversationRepository = require('../repositories/conversationRepository');
 const messageRepository = require('../repositories/messageRepository');
 
-const sendMessage = async ({ conversationId, senderId, body }) => {
+const sendMessage = async ({ conversationId, senderId, body, clientMessageId }) => {
   const conversation = await conversationRepository.findConversationById(conversationId);
 
   if (!conversation) {
@@ -20,7 +20,8 @@ const sendMessage = async ({ conversationId, senderId, body }) => {
   return messageRepository.createMessage({
     conversationId,
     senderId,
-    body
+    body,
+    clientMessageId
   });
 };
 

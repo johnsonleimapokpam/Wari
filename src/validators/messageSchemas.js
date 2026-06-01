@@ -3,7 +3,8 @@ const { z } = require('zod');
 const sendMessageSchema = z.object({
   body: z.object({
     conversationId: z.string().uuid(),
-    body: z.string().min(1).max(5000)
+    body: z.string().min(1).max(5000),
+    clientMessageId: z.string().uuid().optional()
   }),
   params: z.object({}).passthrough(),
   query: z.object({}).passthrough()
