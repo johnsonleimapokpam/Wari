@@ -1,128 +1,109 @@
 const ApiError = require('../utils/ApiError');
 const userRepository = require('../repositories/userRepository');
+const redisClient = require('../config/redis');
 
-class InMemoryPresenceStore {
-  constructor() {
-    this.users = new Map();
+class RedisPresenceStore {
+  constructor(redisClient) {
+    this.redis = redisClient;
   }
 
-  getEntry(userId) {
-    return this.users.get(userId) || null;
-  }
+  async snapshot(userId) {
+    const socketCount = await this.redis.sCard(
+      `user:${userId}:sockets`
+    );
 
-  ensureEntry(userId) {
-    const existingEntry = this.getEntry(userId);
-
-    if (existingEntry) {
-      return existingEntry;
-    }
-
-    const newEntry = {
-      socketIds: new Set(),
-      lastSeenAt: null
-    };
-
-    this.users.set(userId, newEntry);
-    return newEntry;
-  }
-
-  snapshot(userId) {
-    const entry = this.getEntry(userId);
-
-    if (!entry) {
-      return null;
-    }
+    const lastSeen = await this.redis.get(
+      `user:${userId}: lastSeen`
+    );
 
     return {
       userId,
-      isOnline: entry.socketIds.size > 0,
-      activeConnectionsCount: entry.socketIds.size,
-      lastSeen: entry.lastSeenAt ? entry.lastSeenAt.toISOString() : null
+      isOnline: socketCount > 0,
+      activeConnectionsCount :socketCount,
+      lastSeen
     };
   }
 
-  registerConnection(userId, socketId, occurredAt) {
-    const entry = this.ensureEntry(userId);
-    const wasOnline = entry.socketIds.size > 0;
+  async registerConnection(userId, socketId, occurredAt) {
+    const key = `user:${userId}:sockets`;
 
-    entry.socketIds.add(socketId);
-    entry.lastSeenAt = occurredAt;
+    const previousCount = await this.redis.sCard(key);
+    
+    await this.redis.sAdd(key, socketId);
+
+    await this.redis.set(
+      `user:${userId}:presence`,
+      "online"
+    );
 
     return {
-      snapshot: this.snapshot(userId),
-      isNewOnlineTransition: !wasOnline,
-      alreadyRegistered: wasOnline && entry.socketIds.size === 1 && entry.socketIds.has(socketId) === false
+      snapshot: await this.snapshot(userId),
+      isNewOnlineTransition: previousCount === 0,
+      alreadyRegistered: false
     };
   }
 
-  registerHeartbeat(userId, socketId, occurredAt) {
-    const entry = this.getEntry(userId);
-
-    if (!entry) {
-      return this.registerConnection(userId, socketId, occurredAt);
-    }
-
-    const wasAlreadyRegistered = entry.socketIds.has(socketId);
-    entry.socketIds.add(socketId);
-    entry.lastSeenAt = occurredAt;
+  async registerHeartbeat(userId, socketId, occurredAt) {
+    await this.redis.sAdd(
+      `user:${userId}:sockets`,
+      socketId
+    )
 
     return {
       snapshot: this.snapshot(userId),
       isNewOnlineTransition: false,
-      alreadyRegistered: wasAlreadyRegistered
+      alreadyRegistered: true
     };
   }
 
-  unregisterConnection(userId, socketId, occurredAt) {
-    const entry = this.getEntry(userId);
+  async unregisterConnection(userId, socketId, occurredAt) {
+    const key = `user:${userId}:sockets`;
 
-    if (!entry) {
+    await this.redis.sRem( key, socketId);
+
+    const remainingConnections = await this.redis.sCard(key);
+
+    if (remainingConnections > 0){
       return {
-        snapshot: {
-          userId,
-          isOnline: false,
-          activeConnectionsCount: 0,
-          lastSeen: occurredAt.toISOString()
-        },
+        snapshot: await this.snapshot(userId),
         wentOffline: false,
         shouldPersistLastSeen: false
       };
     }
 
-    entry.socketIds.delete(socketId);
+    await this.redis.set(
+      `user:${userId}:presence`,
+      "offline"
+    );
 
-    if (entry.socketIds.size > 0) {
-      return {
-        snapshot: this.snapshot(userId),
-        wentOffline: false,
-        shouldPersistLastSeen: false
-      };
-    }
-
-    entry.lastSeenAt = occurredAt;
-    const snapshot = this.snapshot(userId) || {
-      userId,
-      isOnline: false,
-      activeConnectionsCount: 0,
-      lastSeen: occurredAt.toISOString()
-    };
-
-    this.users.delete(userId);
+    await this.redis.set(
+      `user:${userId}:lastSeen`,
+      occurredAt.toISOString()
+    );
 
     return {
-      snapshot,
+      snapshot: {
+        userId,
+        isOnline: false,
+        activeConnectionsCount: 0,
+        lastSeen:
+          occurredAt.toISOString()
+      },
       wentOffline: true,
       shouldPersistLastSeen: true
     };
   }
 
-  isOnline(userId) {
-    const entry = this.getEntry(userId);
-    return Boolean(entry && entry.socketIds.size > 0);
+  async isOnline(userId) {
+    const count = await this.redis.sCard(
+      `user:${userId}:sockets`
+    );
+
+    return count > 0;
   }
 }
 
-const store = new InMemoryPresenceStore();
+const store = new RedisPresenceStore(redisClient);
 
 const normalizeTimestamp = (occurredAt = new Date()) => {
   return occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
@@ -135,7 +116,7 @@ const getPresence = async (userId) => {
     throw new ApiError(404, 'User not found', { code: 'USER_NOT_FOUND' });
   }
 
-  const onlineSnapshot = store.snapshot(userId);
+  const onlineSnapshot = await store.snapshot(userId);
 
   if (onlineSnapshot) {
     return onlineSnapshot;
@@ -151,17 +132,17 @@ const getPresence = async (userId) => {
 
 const registerConnection = async ({ userId, socketId, occurredAt = new Date() }) => {
   const timestamp = normalizeTimestamp(occurredAt);
-  return store.registerConnection(userId, socketId, timestamp);
+  return await store.registerConnection(userId, socketId, timestamp);
 };
 
 const recordHeartbeat = async ({ userId, socketId, occurredAt = new Date() }) => {
   const timestamp = normalizeTimestamp(occurredAt);
-  return store.registerHeartbeat(userId, socketId, timestamp);
+  return await store.registerHeartbeat(userId, socketId, timestamp);
 };
 
 const unregisterConnection = async ({ userId, socketId, occurredAt = new Date() }) => {
   const timestamp = normalizeTimestamp(occurredAt);
-  const result = store.unregisterConnection(userId, socketId, timestamp);
+  const result = await store.unregisterConnection(userId, socketId, timestamp);
 
   if (result.shouldPersistLastSeen) {
     await userRepository.updateLastSeen(userId, timestamp);
@@ -177,10 +158,10 @@ const recordLogout = async ({ userId, occurredAt = new Date() }) => {
   return {
     userId,
     lastSeen: timestamp.toISOString(),
-    isOnline: store.isOnline(userId)
+    isOnline: await store.isOnline(userId)
   };
 };
-
+ 
 module.exports = {
   getPresence,
   registerConnection,

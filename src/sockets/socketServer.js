@@ -8,6 +8,8 @@ const { registerTypingHandlers } = require('./typingHandlers');
 const { registerDeliveryHandlers } = require('./deliveryHandlers');
 const { registerReadReceiptHandlers } = require('./readReceiptHandlers');
 
+const presenceService = require('../services/presenceService');
+
 const createSocketState = () => ({
   roomPresence: new Map()
 });
@@ -25,17 +27,36 @@ const initializeSocketServer = (httpServer) => {
 
   io.use(socketAuth);
 
-  io.on('connection', (socket) => {
-    const userRoom = `user:${socket.data.user.id}`;
+  io.on('connection', async (socket) => {
+    try{
+      const userId = socket.data.user.id;
 
-    socket.join(userRoom);
+      console.log(
+        `[SOCKET CONNECTED] user =${userId} socket=${socket.id}`
+      );
 
-    registerPresenceHandlers(socket, io);
-    registerTypingHandlers(socket, io);
-    registerDeliveryHandlers(socket, io);
-    registerReadReceiptHandlers(socket, io);
-    registerMessageHandlers(socket, io, state);
-    registerRoomHandlers(socket, io, state);
+      const presenceResult = await presenceService.registerConnection({userId, socketId: socket.id});
+
+      if(presenceResult.isNewOnlineTransition){
+        io.emit('user_online', presenceResult.snapshot);
+        io.emit('user_online', presenceResult.snapshot);
+      }
+
+      const userRoom = `user:${userId}`;
+
+      console.log(`[ROOM JOINED] ${socket.id} -> ${userRoom}`);
+
+      registerPresenceHandlers(socket, io);
+      registerTypingHandlers(socket, io);
+      registerDeliveryHandlers(socket, io);
+      registerReadReceiptHandlers(socket, io);
+      registerMessageHandlers(socket, io, state);
+      registerRoomHandlers(socket, io, state);
+    } catch (error){
+      console.error('Socket connection initialization failed', error);
+
+      socket.disconnect(true);
+    }
   });
 
   return io;

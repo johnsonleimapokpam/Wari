@@ -3,13 +3,22 @@ const app = require('./src/app');
 const { env } = require('./src/config/env');
 const { pool } = require('./src/config/db');
 const { initializeSocketServer } = require('./src/sockets/socketServer');
+const redisClient = require("./src/config/redis")
 
 const httpServer = http.createServer(app);
 const io = initializeSocketServer(httpServer);
+let server;
 
-const server = httpServer.listen(env.PORT, () => {
-  console.log(`API server listening on port ${env.PORT}`);
-});
+async function bootstrap(){
+  await redisClient.connect();
+
+  await pool.query('SELECT 1');
+  console.log("Postgres Connected");
+
+  server = httpServer.listen(env.PORT, () => {
+    console.log(`API server listening on port ${env.PORT}`);
+  });
+}
 
 const shutdown = async () => {
   io.close(() => {
@@ -22,3 +31,8 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+bootstrap().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
