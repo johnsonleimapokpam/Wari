@@ -1,4 +1,4 @@
-const { query } = require('../config/db');
+const { query, pool } = require('../config/db');
 
 const mapUser = (row) => {
   if (!row) {
@@ -118,11 +118,35 @@ const updateLastSeen = async (userId, lastSeenAt = new Date()) => {
   return mapUser(result.rows[0]);
 };
 
+const searchUsers = async (query, currentUserId) => {
+  const result = await pool.query(
+    `
+    SELECT
+      id,
+      first_name,
+      last_name,
+      email
+    FROM users
+    WHERE (
+      first_name ILIKE $1
+      OR last_name ILIKE $1
+      OR email ILIKE $1
+    )
+    AND id <> $2
+    LIMIT 20
+    `,
+    [`%${query}%`, currentUserId]
+  );
+
+  return result.rows;
+};
+
 module.exports = {
   createUser,
   findAuthRecordByEmail,
   findById,
   updateLastSeen,
   updateProfile,
-  mapUser
+  mapUser,
+  searchUsers
 };

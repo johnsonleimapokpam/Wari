@@ -6,6 +6,7 @@ const { updateProfileSchema, userIdParamSchema } = require('../validators/userSc
 
 const router = express.Router();
 
+router.get("/search",authMiddleware,userController.searchUsers);
 router.get('/me', authMiddleware, userController.getCurrentUser);
 router.put('/me', authMiddleware, validate(updateProfileSchema), userController.updateProfile);
 router.get('/:id/presence', authMiddleware, validate(userIdParamSchema), userController.getUserPresence);

@@ -3,9 +3,9 @@ const { sendSuccess } = require('../utils/apiResponse');
 const conversationService = require('../services/conversationService');
 
 const createConversation = asyncHandler(async (req, res) => {
-  const conversation = await conversationService.createConversation({
+  const conversation = await conversationService.createDirectConversation({
     currentUserId: req.user.id,
-    userId: req.body.userId
+    userId: req.body.participantId
   });
 
   return sendSuccess(res, {
@@ -25,7 +25,25 @@ const getConversationList = asyncHandler(async (req, res) => {
   });
 });
 
+const createDirectConversation =
+  asyncHandler(async (req, res) => {
+
+    const conversation =
+      await conversationService
+        .createDirectConversation(
+          req.user.id,
+          req.body.participantId
+        );
+
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: 'Conversation created successfully',
+      data: conversation
+    });
+});
+
 module.exports = {
   createConversation,
+  createDirectConversation,
   getConversationList
 };

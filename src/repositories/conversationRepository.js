@@ -1,4 +1,4 @@
-const { query, withTransaction } = require('../config/db');
+const { query, withTransaction, pool } = require('../config/db');
 
 const mapConversation = (row) => {
   if (!row) {
@@ -97,7 +97,10 @@ const findDirectConversationByKey = async (directKey) => {
 };
 
 const createDirectConversation = async ({ createdByUserId, directKey, memberIds }) => {
-  return withTransaction(async (client) => {
+
+  try{
+
+  return  await withTransaction(async (client) => {
     const conversationResult = await client.query(
       `
         INSERT INTO conversations (conversation_type, direct_key, created_by_user_id)
@@ -119,6 +122,22 @@ const createDirectConversation = async ({ createdByUserId, directKey, memberIds 
 
     return conversation;
   });
+} catch (error) {
+
+  console.error(error);
+
+  console.log(
+    "Constraint:",
+    error.constraint
+  );
+
+  console.log(
+    "Detail:",
+    error.detail
+  );
+
+  throw error;
+}
 };
 
 const listConversationsForUser = async (userId) => {
@@ -169,6 +188,33 @@ const listConversationsForUser = async (userId) => {
   return result.rows.map(mapConversation);
 };
 
+const findDirectConversation =
+  async (
+    userId1,
+    userId2
+  ) => {
+
+    const result =
+      await pool.query(
+        `
+        SELECT c.*
+        FROM conversations c
+        JOIN conversation_members cm1
+          ON cm1.conversation_id = c.id
+        JOIN conversation_members cm2
+          ON cm2.conversation_id = c.id
+        WHERE
+          c.conversation_type = 'direct'
+          AND cm1.user_id = $1
+          AND cm2.user_id = $2
+        LIMIT 1
+        `,
+        [userId1, userId2]
+      );
+
+    return result.rows[0];
+};
+
 module.exports = {
   createDirectConversation,
   findConversationById,
@@ -176,5 +222,6 @@ module.exports = {
   findDirectConversationByKey,
   findOtherConversationMemberUserId,
   listConversationsForUser,
-  mapConversation
+  mapConversation,
+  findDirectConversation
 };

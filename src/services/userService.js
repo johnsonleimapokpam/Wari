@@ -31,8 +31,18 @@ const getUserById = async (userId) => {
   return user;
 };
 
+const searchUsers =
+  async (query, currentUserId) => {
+
+    return userRepository.searchUsers(
+      query,
+      currentUserId
+    );
+};
+
 module.exports = {
   getCurrentUser,
   updateProfile,
-  getUserById
+  getUserById,
+  searchUsers
 };

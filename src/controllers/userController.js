@@ -43,9 +43,31 @@ const getUserPresence = asyncHandler(async (req, res) => {
   });
 });
 
+const searchUsers =
+  async (req, res, next) => {
+
+    try {
+
+      const users =
+        await userService.searchUsers(
+          req.query.q,
+          req.user.id
+        );
+
+      res.json({
+        success: true,
+        data: users
+      });
+
+    } catch (error) {
+      next(error);
+    }
+};
+
 module.exports = {
   getCurrentUser,
   updateProfile,
   getUserById,
-  getUserPresence
+  getUserPresence,
+  searchUsers
 };
