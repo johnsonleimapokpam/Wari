@@ -35,7 +35,7 @@ const createMessage = async ({ groupId, senderId, body, clientMessageId = null }
 
   const members = await groupRepository.listGroupMembers(groupId);
   const recipientIds = members.filter((member) => member.user_id !== senderId && !member.left_at).map((member) => member.user_id);
-  const onlineRecipientIds = recipientIds.filter((userId) => presenceService.isOnline(userId));
+  const onlineRecipientIds = recipientIds.filter(async (userId) => await presenceService.getPresence(userId));
 
   await receiptRepository.createReceipts({
     messageId: result.message.id,

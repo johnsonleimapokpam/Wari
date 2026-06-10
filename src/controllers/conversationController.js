@@ -17,7 +17,7 @@ const createConversation = asyncHandler(async (req, res) => {
 
 const getConversationList = asyncHandler(async (req, res) => {
   const conversations = await conversationService.getConversationList(req.user.id);
-
+  
   return sendSuccess(res, {
     statusCode: 200,
     message: 'Conversations retrieved successfully',

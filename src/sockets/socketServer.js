@@ -32,17 +32,18 @@ const initializeSocketServer = (httpServer) => {
       const userId = socket.data.user.id;
 
       console.log(
-        `[SOCKET CONNECTED] user =${userId} socket=${socket.id}`
+        `[SOCKET CONNECTED] user =${userId} socket=${socket.id} `
       );
 
       const presenceResult = await presenceService.registerConnection({userId, socketId: socket.id});
 
       if(presenceResult.isNewOnlineTransition){
         io.emit('user_online', presenceResult.snapshot);
-        io.emit('user_online', presenceResult.snapshot);
       }
 
       const userRoom = `user:${userId}`;
+
+      socket.join(userRoom);
 
       console.log(`[ROOM JOINED] ${socket.id} -> ${userRoom}`);
 

@@ -72,6 +72,11 @@ const registerPresenceHandlers = (socket, io) => {
   });
 
   socket.on('disconnect', async () => {
+
+    console.log(
+    "DISCONNECT EVENT",
+    socket.id
+  );
     try {
       const result = await presenceService.unregisterConnection({
         userId: socket.data.user.id,

@@ -36,22 +36,57 @@ const emitSocketError = (socket, error, ack) => {
   }
 };
 
-const emitMessageAndStatus = (io, recipientUserId, senderUserId, message) => {
-  io.to(`user:${recipientUserId}`).emit('message_received', {
-    message,
-    conversationId: message.conversationId,
-    sender: { id: senderUserId }
-  });
+const emitMessageAndStatus = (
+  io,
+  recipientUserId,
+  senderUserId,
+  message
+) => {
 
-  io.to(`user:${senderUserId}`).emit('message_status_updated', {
-    conversationId: message.conversationId,
-    messageId: message.id,
-    status: message.status,
-    deliveredAt: message.deliveredAt,
-    readAt: message.readAt,
-    senderId: senderUserId,
-    recipientId: recipientUserId
-  });
+  const payload = {
+    message,
+    conversationId:
+      message.conversationId,
+    sender: {
+      id: senderUserId
+    }
+  };
+
+  io.to(
+    `user:${recipientUserId}`
+  ).emit(
+    'message_received',
+    payload
+  );
+
+  io.to(
+    `user:${senderUserId}`
+  ).emit(
+    'message_received',
+    payload
+  );
+
+  io.to(
+    `user:${senderUserId}`
+  ).emit(
+    'message_status_updated',
+    {
+      conversationId:
+        message.conversationId,
+      messageId:
+        message.id,
+      status:
+        message.status,
+      deliveredAt:
+        message.deliveredAt,
+      readAt:
+        message.readAt,
+      senderId:
+        senderUserId,
+      recipientId:
+        recipientUserId
+    }
+  );
 };
 
 const registerMessageHandlers = (socket, io) => {
@@ -122,7 +157,7 @@ const registerMessageHandlers = (socket, io) => {
       const recipientUserId = otherMember.user_id;
       let deliveredMessage = result.message;
 
-      if (presenceService.isOnline(recipientUserId)) {
+      if ( await presenceService.getPresence(recipientUserId)) {
         const deliveryResult = await deliveryService.markMessageDelivered({
           messageId: result.message.id,
           recipientUserId
