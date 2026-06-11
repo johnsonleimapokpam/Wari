@@ -120,8 +120,54 @@ const createDirectConversation = async ({ createdByUserId, directKey, memberIds 
       [conversation.id, memberIds[0], memberIds[1]]
     );
 
-    return conversation;
-  });
+    const fullConversationResult =
+          await client.query(
+            `
+            SELECT
+              c.id,
+              c.conversation_type,
+              c.direct_key,
+              c.title,
+              c.description,
+              c.avatar_url,
+              c.owner_user_id,
+              c.created_by_user_id,
+              c.last_message_id,
+              c.created_at,
+              c.updated_at,
+              c.archived_at,
+              c.deleted_at,
+
+              u.id AS other_user_id,
+              u.email AS other_user_email,
+              u.first_name AS other_user_first_name,
+              u.last_name AS other_user_last_name,
+              u.avatar_url AS other_user_avatar_url
+
+            FROM conversations c
+
+            JOIN conversation_members cm
+              ON cm.conversation_id = c.id
+
+            JOIN users u
+              ON u.id = cm.user_id
+
+            WHERE c.id = $1
+              AND u.id <> $2
+
+            LIMIT 1
+            `,
+            [
+              conversation.id,
+              createdByUserId
+            ]
+          );
+
+        return mapConversation(
+          fullConversationResult.rows[0]
+        );
+      }
+    );
 } catch (error) {
 
   console.error(error);
