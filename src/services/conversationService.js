@@ -33,7 +33,7 @@ const createConversation = async ({ currentUserId, userId }) => {
       memberIds: [currentUserId, userId]
     });
 
-    return conversationRepository.mapConversation(conversation);
+    return conversation;
   } catch (error) {
     const conversation = await conversationRepository.findDirectConversationByKey(directKey);
 
