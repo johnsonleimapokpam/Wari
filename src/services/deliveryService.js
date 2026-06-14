@@ -20,14 +20,14 @@ const markMessageDelivered = async ({ messageId, recipientUserId, deliveredAt = 
     throw new ApiError(404, 'Message not found', { code: 'MESSAGE_NOT_FOUND' });
   }
 
-  await ensureRecipientConversationAccess(message.conversation_id, recipientUserId);
+  await ensureRecipientConversationAccess(message.conversationId, recipientUserId);
 
-  if (message.sender_id === recipientUserId) {
-    return { message: messageRepository.mapMessage(message), isUpdated: false };
+  if (message.senderId === recipientUserId) {
+    return { message, isUpdated: false };
   }
 
   if (message.status === MESSAGE_STATUSES.DELIVERED || message.status === MESSAGE_STATUSES.READ) {
-    return { message: messageRepository.mapMessage(message), isUpdated: false };
+    return { message, isUpdated: false };
   }
 
   assertValidTransition(message.status, MESSAGE_STATUSES.DELIVERED);
@@ -39,7 +39,7 @@ const markMessageDelivered = async ({ messageId, recipientUserId, deliveredAt = 
   });
 
   return {
-    message: messageRepository.mapMessage(updatedMessage),
+    message: updatedMessage,
     isUpdated: Boolean(updatedMessage)
   };
 };

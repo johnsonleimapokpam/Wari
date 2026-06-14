@@ -3,9 +3,9 @@ const { sendSuccess } = require('../utils/apiResponse');
 const conversationService = require('../services/conversationService');
 
 const createConversation = asyncHandler(async (req, res) => {
-  const conversation = await conversationService.createDirectConversation({
+  const conversation = await conversationService.createConversation({
     currentUserId: req.user.id,
-    userId: req.body.participantId
+    userId: req.body.participantId  // validated by schema, guaranteed to be a UUID
   });
 
   return sendSuccess(res, {
@@ -17,7 +17,7 @@ const createConversation = asyncHandler(async (req, res) => {
 
 const getConversationList = asyncHandler(async (req, res) => {
   const conversations = await conversationService.getConversationList(req.user.id);
-  
+
   return sendSuccess(res, {
     statusCode: 200,
     message: 'Conversations retrieved successfully',

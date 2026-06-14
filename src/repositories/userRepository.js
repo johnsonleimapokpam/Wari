@@ -134,7 +134,7 @@ const searchUsers = async (searchTerm, currentUserId) => {
     )
     AND id <> $2
     AND deleted_at IS NULL
-    and is_active = true
+    AND is_active = true
     LIMIT 20
     `,
     [`%${searchTerm}%`, currentUserId]
