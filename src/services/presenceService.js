@@ -13,7 +13,7 @@ class RedisPresenceStore {
     );
 
     const lastSeen = await this.redis.get(
-      `user:${userId}: lastSeen`
+      `user:${userId}:lastSeen`
     );
 
     return {
@@ -50,7 +50,7 @@ class RedisPresenceStore {
     )
 
     return {
-      snapshot: this.snapshot(userId),
+      snapshot: await this.snapshot(userId),
       isNewOnlineTransition: false,
       alreadyRegistered: true
     };

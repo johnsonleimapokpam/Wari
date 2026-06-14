@@ -8,6 +8,5 @@ const router = express.Router();
 
 router.post('/', authMiddleware, validate(createConversationSchema), conversationController.createConversation);
 router.get('/', authMiddleware, conversationController.getConversationList);
-router.post("/direct", authMiddleware, conversationController.createDirectConversation);
 
 module.exports = router;

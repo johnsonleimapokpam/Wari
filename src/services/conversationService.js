@@ -59,18 +59,6 @@ const getConversation = async (conversationId) => {
   return conversationRepository.mapConversation(conversation);
 };
 
-const createDirectConversation =
-  async (
-    currentUserId,
-    participantId
-  ) => {
-
-    return createConversation({
-      currentUserId,
-      userId: participantId
-    });
-};
-
 module.exports = {
   createConversation,
   getConversationList,

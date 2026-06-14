@@ -99,7 +99,7 @@ const findMessageById = async (messageId) => {
     [messageId]
   );
 
-  return result.rows[0] || null;
+  return mapMessage(result.rows[0]) || null;
 };
 
 const updateMessageStatus = async ({ messageId, status, deliveredAt, readAt }) => {

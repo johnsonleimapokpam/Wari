@@ -118,8 +118,8 @@ const updateLastSeen = async (userId, lastSeenAt = new Date()) => {
   return mapUser(result.rows[0]);
 };
 
-const searchUsers = async (query, currentUserId) => {
-  const result = await pool.query(
+const searchUsers = async (searchTerm, currentUserId) => {
+  const result = await query(
     `
     SELECT
       id,
@@ -133,9 +133,11 @@ const searchUsers = async (query, currentUserId) => {
       OR email ILIKE $1
     )
     AND id <> $2
+    AND deleted_at IS NULL
+    and is_active = true
     LIMIT 20
     `,
-    [`%${query}%`, currentUserId]
+    [`%${searchTerm}%`, currentUserId]
   );
 
   return result.rows;
